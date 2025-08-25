@@ -5,14 +5,20 @@ A super simple FastAPI application that allows students to view and sign up
 for extracurricular activities at Mergington High School.
 """
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import RedirectResponse
+from pymongo import MongoClient
 import os
 from pathlib import Path
 
 app = FastAPI(title="Mergington High School API",
               description="API for viewing and signing up for extracurricular activities")
+
+# 連接到 MongoDB
+client = MongoClient('mongodb://localhost:27017/')
+db = client['school']
+activities_collection = db['activities']
 
 # Mount the static files directory
 current_dir = Path(__file__).parent
@@ -86,25 +92,59 @@ def root():
     return RedirectResponse(url="/static/index.html")
 
 
+@app.on_event("startup")
+async def startup_event():
+    # 清空現有集合
+    activities_collection.drop()
+    # 插入所有活動
+    for name, details in activities.items():
+        activities_collection.insert_one({
+            "_id": name,  # 使用活動名稱作為文件 ID
+            **details
+        })
+
 @app.get("/activities")
 def get_activities():
-    return activities
+    result = {}
+    for doc in activities_collection.find():
+        name = doc.pop('_id')  # 移除 _id 欄位並取得活動名稱
+        result[name] = doc
+    return result
 
 
 @app.post("/activities/{activity_name}/signup")
 def signup_for_activity(activity_name: str, email: str):
     """Sign up a student for an activity"""
     # Validate activity exists
-    if activity_name not in activities:
+    activity = activities_collection.find_one({"_id": activity_name})
+    if not activity:
         raise HTTPException(status_code=404, detail="Activity not found")
-
-    # Get the specific activity
-    activity = activities[activity_name]
 
     # Validate student is not already signed up
     if email in activity["participants"]:
         raise HTTPException(status_code=400, detail="Student is already signed up")
 
     # Add student
-    activity["participants"].append(email)
+    activities_collection.update_one(
+        {"_id": activity_name},
+        {"$push": {"participants": email}}
+    )
     return {"message": f"Signed up {email} for {activity_name}"}
+
+
+# 移除參與者的端點
+@app.delete("/activities/{activity_name}/unregister")
+def unregister_from_activity(activity_name: str, email: str = Query(...)):
+    """Unregister a student from an activity"""
+    activity = activities_collection.find_one({"_id": activity_name})
+    if not activity:
+        raise HTTPException(status_code=404, detail="Activity not found")
+
+    if email not in activity["participants"]:
+        raise HTTPException(status_code=400, detail="Student is not registered")
+    
+    activities_collection.update_one(
+        {"_id": activity_name},
+        {"$pull": {"participants": email}}
+    )
+    return {"message": f"Unregistered {email} from {activity_name}"}

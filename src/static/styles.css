@@ -1,3 +1,20 @@
+/* 隱藏參與者列表的點 */
+.participants-list {
+  list-style-type: none;
+  padding-left: 0;
+}
+
+/* 刪除圖示樣式 */
+.delete-participant {
+  cursor: pointer;
+  color: #c00;
+  margin-left: 0.5em;
+  font-size: 1.1em;
+  transition: color 0.2s;
+}
+.delete-participant:hover {
+  color: #900;
+}
 * {
   box-sizing: border-box;
   margin: 0;
